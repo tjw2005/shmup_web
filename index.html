@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TJ's Gradius Clone</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+        <!-- Splash Screen -->
+        <div id="splash-screen" class="ui-screen">
+            <h1>TJ's GRADIUS CLONE</h1>
+            <button id="start-btn">START GAME</button>
+            <p>Arrows to Move | Z to Shoot | X to Power-up</p>
+            <div id="gamepad-controls" class="hidden">
+                <p style="color: #0f0; margin-top: 10px;">🎮 GAMEPAD CONNECTED</p>
+                <p>Left Stick: Move | A: Shoot | B: Power-up</p>
+                <p><strong>Press START to Play</strong></p>
+            </div>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="game-over-screen" class="ui-screen hidden">
+            <h1>GAME OVER</h1>
+            <p id="final-score">SCORE: 0</p>
+            <button id="restart-btn">BACK TO MENU</button>
+        </div>
+
+        <div id="ui-layer">
+            <div id="score">SCORE: 000000</div>
+            <div id="powerup-bar">
+                <div class="p-slot" id="p-speed">SPEED</div>
+                <div class="p-slot" id="p-missile">MISSILE</div>
+                <div class="p-slot" id="p-double">DOUBLE</div>
+                <div class="p-slot" id="p-laser">LASER</div>
+                <div class="p-slot" id="p-option">OPTION</div>
+                <div class="p-slot" id="p-shield">?</div>
+            </div>
+        </div>
+    </div>
+    <script src="game.js"></script>
+</body>
+
+</html>
