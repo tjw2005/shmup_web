@@ -5,15 +5,40 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
+    width: 100vw;
     height: 100vh;
+    height: 100dvh;
+    /* Dynamic viewport height for mobile browsers */
     color: white;
     font-family: 'Courier New', Courier, monospace;
     overflow: hidden;
+    /* Disable selection and touch behaviors */
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
 }
 
 #game-container {
     position: relative;
     box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+    /* Mobile Scaling */
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+}
+
+canvas {
+    background-color: #000;
+    display: block;
+    /* Scale canvas to fit container while maintaining aspect ratio */
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    /* Hardware acceleration hint */
+    transform: translateZ(0);
 }
 
 .ui-screen {
@@ -27,14 +52,17 @@ body {
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    z-index: 10;
+    z-index: 20;
 }
 
 .ui-screen h1 {
-    font-size: 48px;
+    font-size: 5vw;
+    /* Responsive font size */
+    max-font-size: 48px;
     color: #fa0;
     margin-bottom: 20px;
     text-shadow: 0 0 10px #f00;
+    text-align: center;
 }
 
 .ui-screen button {
@@ -55,13 +83,12 @@ body {
     transform: scale(1.1);
 }
 
-.hidden {
-    display: none !important;
+.ui-screen button:active {
+    transform: scale(0.95);
 }
 
-canvas {
-    background-color: #000;
-    display: block;
+.hidden {
+    display: none !important;
 }
 
 #ui-layer {
@@ -70,26 +97,36 @@ canvas {
     left: 0;
     width: 100%;
     padding: 10px;
+    /* Safe Area Insets for notched phones */
+    padding-left: max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
     box-sizing: border-box;
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
     pointer-events: none;
+    z-index: 10;
 }
 
 #score {
     position: absolute;
     top: 10px;
+    /* Safe Area Insets */
+    top: max(10px, env(safe-area-inset-top));
     left: 50%;
     transform: translateX(-50%);
     font-size: 24px;
     font-weight: bold;
     text-shadow: 0 0 5px white;
+    white-space: nowrap;
 }
 
 #powerup-bar {
     position: absolute;
     bottom: 10px;
+    /* Safe Area Insets */
+    bottom: max(10px, env(safe-area-inset-bottom));
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -106,7 +143,8 @@ canvas {
     font-size: 14px;
     font-weight: bold;
     border: 1px solid #333;
-    min-width: 60px;
+    min-width: 40px;
+    /* Reduced for smaller screens */
     text-align: center;
 }
 
@@ -130,5 +168,121 @@ canvas {
 
     to {
         box-shadow: 0 0 10px #fa0;
+    }
+}
+
+/* Touch Controls */
+#touch-controls {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 15;
+    pointer-events: none;
+    /* Allow events to pass through generally logic handles specific zones */
+}
+
+#joystick-zone {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 50%;
+    height: 100%;
+    pointer-events: auto;
+    /* Catch touches here */
+}
+
+#button-zone {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 50%;
+    height: 100%;
+    pointer-events: auto;
+    /* Catch touches here */
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: flex-end;
+    padding: 20px;
+    padding-right: max(20px, env(safe-area-inset-right));
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+    box-sizing: border-box;
+    gap: 20px;
+}
+
+.touch-btn {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    font-weight: bold;
+    user-select: none;
+    pointer-events: auto;
+}
+
+.touch-btn:active {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+#btn-shoot {
+    width: 90px;
+    height: 90px;
+    background: rgba(255, 0, 0, 0.2);
+    border-color: rgba(255, 0, 0, 0.5);
+}
+
+/* Rotate Overlay */
+#rotate-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #000;
+    color: white;
+    z-index: 100;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    text-align: center;
+}
+
+.rotate-content h1 {
+    color: #fa0;
+    font-size: 24px;
+}
+
+/* Media Query for Portrait Mode */
+@media screen and (orientation: portrait) {
+    #rotate-overlay {
+        display: flex !important;
+    }
+}
+
+/* Hide overlay in landscape */
+@media screen and (orientation: landscape) {
+    #rotate-overlay {
+        display: none !important;
+    }
+}
+
+/* Responsive adjustments for small screens */
+@media (max-width: 600px) {
+    .p-slot {
+        font-size: 10px;
+        padding: 2px 5px;
+        min-width: 30px;
+    }
+
+    #score {
+        font-size: 16px;
     }
 }

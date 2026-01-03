@@ -3,7 +3,9 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <title>TJ's Gradius Clone</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -47,6 +49,23 @@
                 <div class="p-slot" id="p-laser">LASER</div>
                 <div class="p-slot" id="p-option">OPTION</div>
                 <div class="p-slot" id="p-shield">?</div>
+            </div>
+        </div>
+
+        <!-- Touch Controls -->
+        <div id="touch-controls" class="hidden">
+            <div id="joystick-zone"></div>
+            <div id="button-zone">
+                <div id="btn-shoot" class="touch-btn">SHOOT</div>
+                <div id="btn-powerup" class="touch-btn">POWER</div>
+            </div>
+        </div>
+
+        <!-- Rotate Device Overlay -->
+        <div id="rotate-overlay" class="hidden">
+            <div class="rotate-content">
+                <h1>Please Rotate Device</h1>
+                <p>Landscape orientation required</p>
             </div>
         </div>
     </div>

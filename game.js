@@ -27,49 +27,141 @@ const BOSS_APPEAR_DISTANCE = 2000;
 let bossMode = false;
 // No duplicate deathTimer here
 let deathTimer = 0;
+let lastStartPressed = false;
 
-// Input Handling
-const keys = {};
-// Gamepad state for debouncing
-let lastButtonState = {};
-let gamepadConnected = false;
+// Input Handling Platform
+class InputHandler {
+    constructor() {
+        this.keys = {};
+        this.touch = { x: 0, y: 0, shoot: false, powerup: false };
+        this.gamepadConnected = false;
 
-window.addEventListener('keydown', (e) => {
-    keys[e.code] = true;
-    if (currentState === GAME_STATE.PLAYING) {
-        if (e.code === 'KeyZ') player.shoot();
-        if (e.code === 'KeyX') player.activatePowerup();
+        this.initListeners();
     }
-});
 
+    initListeners() {
+        window.addEventListener('keydown', (e) => {
+            this.keys[e.code] = true;
+            // Prevent scrolling with arrows/space
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+                e.preventDefault();
+            }
+        });
+        window.addEventListener('keyup', (e) => this.keys[e.code] = false);
 
-window.addEventListener('keyup', (e) => {
-    keys[e.code] = false;
-});
+        window.addEventListener("gamepadconnected", (e) => {
+            this.gamepadConnected = true;
+            this.updateGamepadUI(true);
+        });
+        window.addEventListener("gamepaddisconnected", (e) => {
+            this.gamepadConnected = false;
+            this.updateGamepadUI(false);
+        });
 
-window.addEventListener("gamepadconnected", (e) => {
-    console.log("Gamepad connected at index %d: %s. %d buttons, %d axes.",
-        e.gamepad.index, e.gamepad.id,
-        e.gamepad.buttons.length, e.gamepad.axes.length);
-    gamepadConnected = true;
-    updateGamepadUI();
-});
+        // Touch Listeners
+        if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+            const touchControls = document.getElementById('touch-controls');
+            if (touchControls) {
+                touchControls.classList.remove('hidden');
+                this.initTouchControls();
+            }
+        }
+    }
 
-window.addEventListener("gamepaddisconnected", (e) => {
-    console.log("Gamepad disconnected from index %d: %s",
-        e.gamepad.index, e.gamepad.id);
-    gamepadConnected = false;
-    updateGamepadUI();
-});
+    updateGamepadUI(connected) {
+        const el = document.getElementById('gamepad-controls');
+        if (connected) el.classList.remove('hidden');
+        else el.classList.add('hidden');
+    }
 
-function updateGamepadUI() {
-    const el = document.getElementById('gamepad-controls');
-    if (gamepadConnected) {
-        el.classList.remove('hidden');
-    } else {
-        el.classList.add('hidden');
+    initTouchControls() {
+        const joyZone = document.getElementById('joystick-zone');
+        const shootBtn = document.getElementById('btn-shoot');
+        const powerBtn = document.getElementById('btn-powerup');
+
+        let startX, startY;
+        const maxDist = 50;
+
+        joyZone.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.changedTouches[0];
+            startX = touch.clientX;
+            startY = touch.clientY;
+        }, { passive: false });
+
+        joyZone.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.changedTouches[0];
+            const dx = touch.clientX - startX;
+            const dy = touch.clientY - startY;
+
+            // Normalize
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const clampedDist = Math.min(dist, maxDist);
+            const angle = Math.atan2(dy, dx);
+
+            this.touch.x = (Math.cos(angle) * clampedDist) / maxDist;
+            this.touch.y = (Math.sin(angle) * clampedDist) / maxDist;
+        }, { passive: false });
+
+        joyZone.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            this.touch.x = 0;
+            this.touch.y = 0;
+        }, { passive: false });
+
+        shootBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this.touch.shoot = true; });
+        shootBtn.addEventListener('touchend', (e) => { e.preventDefault(); this.touch.shoot = false; });
+
+        powerBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this.touch.powerup = true; });
+        powerBtn.addEventListener('touchend', (e) => { e.preventDefault(); this.touch.powerup = false; });
+    }
+
+    getState() {
+        const state = { x: 0, y: 0, shoot: false, powerup: false, start: false };
+
+        // Keyboard
+        if (this.keys['ArrowUp']) state.y -= 1;
+        if (this.keys['ArrowDown']) state.y += 1;
+        if (this.keys['ArrowLeft']) state.x -= 1;
+        if (this.keys['ArrowRight']) state.x += 1;
+        if (this.keys['KeyZ']) state.shoot = true;
+        if (this.keys['KeyX']) state.powerup = true;
+        if (this.keys['Enter']) state.start = true;
+
+        // Touch
+        state.x += this.touch.x;
+        state.y += this.touch.y;
+        if (this.touch.shoot) state.shoot = true;
+        if (this.touch.powerup) state.powerup = true;
+
+        // Gamepad
+        const gp = navigator.getGamepads ? navigator.getGamepads()[0] : null;
+        if (gp) {
+            // Apply deadzone
+            if (Math.abs(gp.axes[0]) > 0.2) state.x += gp.axes[0];
+            if (Math.abs(gp.axes[1]) > 0.2) state.y += gp.axes[1];
+
+            // D-Pad
+            if (gp.buttons[12]?.pressed) state.y -= 1;
+            if (gp.buttons[13]?.pressed) state.y += 1;
+            if (gp.buttons[14]?.pressed) state.x -= 1;
+            if (gp.buttons[15]?.pressed) state.x += 1;
+
+            if (gp.buttons[0]?.pressed) state.shoot = true; // A / X
+            if (gp.buttons[1]?.pressed || gp.buttons[2]?.pressed) state.powerup = true; // B / Circle
+            if (gp.buttons[9]?.pressed) state.start = true; // Start
+        }
+
+        // Clamp values
+        state.x = Math.max(-1, Math.min(1, state.x));
+        state.y = Math.max(-1, Math.min(1, state.y));
+
+        return state;
     }
 }
+
+const inputManager = new InputHandler();
 
 
 // Sound Manager using Web Audio API
@@ -365,70 +457,29 @@ class Player {
     update() {
         if (this.invincibleTimer > 0) this.invincibleTimer--;
 
-        // Keyboard Input
-        if (keys['ArrowUp']) this.y -= this.speed;
-        if (keys['ArrowDown']) this.y += this.speed;
-        if (keys['ArrowLeft']) this.x -= this.speed;
-        if (keys['ArrowRight']) this.x += this.speed;
+        // Input
+        const input = inputManager.getState();
 
-        // Gamepad Input
-        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-        for (const gp of gamepads) {
-            if (!gp) continue;
+        // Movement
+        this.x += input.x * this.speed;
+        this.y += input.y * this.speed;
 
-            // Movement (Axes 0/1 or D-Pad)
-            if (gp.axes[1] < -0.5) this.y -= this.speed; // Up
-            if (gp.axes[1] > 0.5) this.y += this.speed;  // Down
-            if (gp.axes[0] < -0.5) this.x -= this.speed; // Left
-            if (gp.axes[0] > 0.5) this.x += this.speed;  // Right
-
-            // D-Pad (Standard mapping often on buttons 12,13,14,15 or axes 6/7 depending on OS/Controller)
-            if (gp.buttons[12]?.pressed) this.y -= this.speed;
-            if (gp.buttons[13]?.pressed) this.y += this.speed;
-            if (gp.buttons[14]?.pressed) this.x -= this.speed;
-            if (gp.buttons[15]?.pressed) this.x += this.speed;
-
-            // Shoot (Button 0 - A/Cross)
-            if (gp.buttons[0]?.pressed) {
-                // Simple debounce or just rapid fire? 
-                // Let's allow rapid fire 'hold' for gamepads usually, or needs explicit press?
-                // Gradius usually allows hold or rapid tapping. Let's make it hold-friendly but rate-limited?
-                // Current shoot implementation just spawns a bullet. If called every frame, it's a beam.
-                // Let's add a cooldown to shoot() if not present, or rely on keydown event style (one shot per press).
-
-                // For now, let's treat it like "if not pressed last frame".
-                if (!lastButtonState['btn0_' + gp.index]) {
-                    this.shoot();
-                    lastButtonState['btn0_' + gp.index] = true;
-                }
-            } else {
-                lastButtonState['btn0_' + gp.index] = false;
+        // Shoot (Auto-fire with rate limit)
+        if (input.shoot) {
+            // Simple rate limiter: every 8 frames
+            if (frameCount % 8 === 0) {
+                this.shoot();
             }
+        }
 
-            // Powerup (Button 1, 2, or 3 - B/X/Y or Circle/Square/Triangle)
-            const powerBtnPressed = gp.buttons[1]?.pressed || gp.buttons[2]?.pressed || gp.buttons[3]?.pressed;
-            if (powerBtnPressed) {
-                if (!lastButtonState['btnP_' + gp.index]) {
-                    this.activatePowerup();
-                    lastButtonState['btnP_' + gp.index] = true;
-                }
-            } else {
-                lastButtonState['btnP_' + gp.index] = false;
+        // Powerup (Debounce)
+        if (input.powerup) {
+            if (!this.lastPowerupState) {
+                this.activatePowerup();
+                this.lastPowerupState = true;
             }
-
-            // Start Button (Button 9 usually)
-            if (gp.buttons[9]?.pressed) {
-                if (!lastButtonState['btnStart_' + gp.index]) {
-                    if (currentState === GAME_STATE.MENU) {
-                        startGame();
-                    } else if (currentState === GAME_STATE.GAME_OVER) {
-                        goToMenu();
-                    }
-                    lastButtonState['btnStart_' + gp.index] = true;
-                }
-            } else {
-                lastButtonState['btnStart_' + gp.index] = false;
-            }
+        } else {
+            this.lastPowerupState = false;
         }
 
         // Bounds
@@ -887,6 +938,21 @@ const terrain = new Terrain();
 // Game Loop
 function gameLoop() {
     ctx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+    // Global Input (Start Button)
+    const input = inputManager.getState();
+    if (input.start) {
+        if (!lastStartPressed) {
+            if (currentState === GAME_STATE.MENU) {
+                startGame();
+            } else if (currentState === GAME_STATE.GAME_OVER) {
+                goToMenu();
+            }
+            lastStartPressed = true;
+        }
+    } else {
+        lastStartPressed = false;
+    }
 
     // Always draw background effects for visual polish?
     // Or just pause everything. Let's pause everything to match request "game should not run".
