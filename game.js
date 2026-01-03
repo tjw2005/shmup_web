@@ -14,12 +14,17 @@ const GAME_STATE = {
     MENU: 0,
     PLAYING: 1,
     GAME_OVER: 2,
-    DYING: 3
+    DYING: 3,
+    STAGE_COMPLETE: 4
 };
 
 let currentState = GAME_STATE.MENU;
 let frameCount = 0;
 let score = 0;
+let distance = 0;
+let stage = 1;
+const BOSS_APPEAR_DISTANCE = 2000;
+let bossMode = false;
 // No duplicate deathTimer here
 let deathTimer = 0;
 
@@ -153,6 +158,23 @@ const SoundManager = {
         filter.connect(gain);
         gain.connect(audioCtx.destination);
         noise.start();
+        noise.start();
+    },
+    playPlayerDamage: () => {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(50, audioCtx.currentTime + 0.2);
+        osc.type = 'sawtooth';
+
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.2);
     },
 
     // Simple Music Sequencer
@@ -175,6 +197,10 @@ const SoundManager = {
         gameover: {
             notes: [100, 95, 90, 85, 80, 75, 70, 65], // Descending
             interval: 0.3
+        },
+        victory: {
+            notes: [523, 0, 523, 0, 523, 659, 783, 1046], // C Major Fanfare
+            interval: 0.15
         }
     },
 
@@ -238,8 +264,15 @@ window.addEventListener('click', () => {
 const splashScreen = document.getElementById('splash-screen');
 const gameOverScreen = document.getElementById('game-over-screen');
 const finalScoreEl = document.getElementById('final-score');
+
 const startBtn = document.getElementById('start-btn');
 const restartBtn = document.getElementById('restart-btn');
+const initialStageBtn = document.getElementById('next-stage-btn'); // For stage complete
+const stageCompleteScreen = document.getElementById('stage-complete-screen');
+
+initialStageBtn.addEventListener('click', () => {
+    startNextStage();
+});
 
 startBtn.addEventListener('click', () => {
     startGame();
@@ -272,6 +305,9 @@ function goToMenu() {
 
 function resetGame() {
     score = 0;
+    distance = 0;
+    stage = 1;
+    bossMode = false;
     frameCount = 0;
     // Reset Player
     player.x = 50;
@@ -283,7 +319,10 @@ function resetGame() {
     player.hasDouble = false;
     player.hasLaser = false;
     player.hasShield = false;
+    player.invincible = false;
     player.active = true; // Ensure player is active
+    player.hp = 5;
+    player.invincibleTimer = 0;
 
     // Clear Collections
     bullets.length = 0;
@@ -312,10 +351,20 @@ class Player {
         this.hasDouble = false;
         this.hasLaser = false;
         this.options = [];
+        this.options = [];
         this.hasShield = false;
+        this.hasShield = false;
+        this.invincible = false;
+
+        // HP System
+        this.hp = 5;
+        this.maxHp = 5;
+        this.invincibleTimer = 0;
     }
 
     update() {
+        if (this.invincibleTimer > 0) this.invincibleTimer--;
+
         // Keyboard Input
         if (keys['ArrowUp']) this.y -= this.speed;
         if (keys['ArrowDown']) this.y += this.speed;
@@ -389,6 +438,9 @@ class Player {
 
 
     draw() {
+        // Blink if temporarily invincible (i-frames), but steady if perm-invincible (boss win)
+        if (this.invincibleTimer > 0 && Math.floor(frameCount / 4) % 2 === 0) return;
+
         ctx.fillStyle = this.color;
 
         // Main Ship Body
@@ -405,6 +457,14 @@ class Player {
             ctx.fillStyle = '#f00';
             ctx.fillRect(this.x - 5, this.y + 4, 5, 6);
         }
+
+        // Draw HP Bar
+        const barWidth = 30;
+        const hpPercent = Math.max(0, this.hp / this.maxHp);
+        ctx.fillStyle = '#500';
+        ctx.fillRect(this.x, this.y - 8, barWidth, 4);
+        ctx.fillStyle = '#0f0';
+        ctx.fillRect(this.x, this.y - 8, barWidth * hpPercent, 4);
     }
 
 
@@ -605,6 +665,83 @@ class Enemy {
     }
 }
 
+class Boss {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.width = 60;
+        this.height = 80;
+        this.active = true;
+        this.color = '#f00';
+        this.hp = 50;
+        this.maxHp = 50;
+        this.vy = 2;
+        this.phase = 0; // 0=entry, 1=fighting
+        this.entryTargetX = SCREEN_WIDTH - 150;
+        this.dying = false;
+        this.deathTimer = 0;
+    }
+
+    update() {
+        if (this.dying) {
+            this.deathTimer--;
+            if (this.deathTimer % 10 === 0) SoundManager.playExplosion();
+
+            // Random explosion particles visual only? 
+            // We'll handle visual flash in draw().
+
+            if (this.deathTimer <= 0) {
+                this.active = false;
+                // Stage Progression: Show Screen
+                bossMode = false;
+                stageComplete();
+            }
+            return;
+        }
+
+        if (this.phase === 0) {
+            // Entry phase: move to position
+            if (this.x > this.entryTargetX) {
+                this.x -= 2;
+            } else {
+                this.phase = 1;
+            }
+        } else {
+            // Fight phase
+            this.y += this.vy;
+            if (this.y < 50 || this.y > SCREEN_HEIGHT - 50 - this.height) {
+                this.vy *= -1;
+            }
+        }
+    }
+
+    draw() {
+        if (this.dying) {
+            // Flash effect
+            if (Math.floor(this.deathTimer / 5) % 2 === 0) {
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                return;
+            }
+        }
+
+        ctx.fillStyle = this.color;
+        // Core
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+
+        // "Eye" (Weakpoint)
+        ctx.fillStyle = '#0ff';
+        ctx.fillRect(this.x + 10, this.y + 30, 20, 20);
+
+        // HP Bar
+        const hpPercent = this.hp / this.maxHp;
+        ctx.fillStyle = '#500';
+        ctx.fillRect(this.x, this.y - 10, this.width, 5);
+        ctx.fillStyle = '#0f0';
+        ctx.fillRect(this.x, this.y - 10, this.width * hpPercent, 5);
+    }
+}
+
 // Check AABB Collision
 function checkCollision(rect1, rect2) {
     return (rect1.x < rect2.x + rect2.width &&
@@ -646,16 +783,59 @@ class Terrain {
     }
 
     addSegment(x) {
-        // Simple distinct floor/ceiling
-        const floorHeight = 50 + Math.random() * 150;
-        const ceilHeight = 50 + Math.random() * 50;
+        let biome = 'cave';
+        let color = '#654';
+
+        // Determine Biome based on Stage
+        // cycling: 1=Cave, 2=Tech, 3=Alien, 4=Cave...
+        const cycle = (stage - 1) % 3;
+
+        // Logic Vars
+        let floorH, ceilH;
+
+        if (cycle === 0) {
+            // CAHVERN
+            biome = 'cave';
+            color = '#654';
+            floorH = 50 + Math.random() * 150;
+            ceilH = 50 + Math.random() * 50;
+        } else if (cycle === 1) {
+            // TECH BASE
+            biome = 'tech';
+            color = '#567'; // Blue-grey steel
+            // More blocky/stepped. 
+            // We can look at the previous segment to hold height for a "platform"
+            const prev = this.segments.length > 0 ? this.segments[this.segments.length - 1] : null;
+
+            // 20% chance to change height, otherwise keep same flat height
+            if (prev && prev.biome === 'tech' && Math.random() > 0.3) {
+                floorH = prev.h;
+                ceilH = prev.ch;
+            } else {
+                // Change height to a discrete step
+                floorH = 50 + Math.floor(Math.random() * 4) * 40; // Steps of 40
+                ceilH = 40 + Math.floor(Math.random() * 3) * 30;
+            }
+
+        } else {
+            // ALIEN HIVE
+            biome = 'alien';
+            color = '#4a3'; // Greenish organic
+            // Wavy / Erratic
+            const time = x * 0.01;
+            floorH = 100 + Math.sin(time) * 80 + Math.random() * 40;
+            ceilH = 80 + Math.cos(time) * 60 + Math.random() * 20;
+        }
+
         this.segments.push({
             x: x,
             width: this.segmentWidth,
-            floorY: SCREEN_HEIGHT - floorHeight, // Y position of floor top
-            ceilY: ceilHeight,                   // Y position of ceiling bottom
-            h: floorHeight,
-            ch: ceilHeight
+            floorY: SCREEN_HEIGHT - floorH, // Y position of floor top
+            ceilY: ceilH,                   // Y position of ceiling bottom
+            h: floorH,
+            ch: ceilH,
+            color: color,
+            biome: biome
         });
     }
 
@@ -672,12 +852,19 @@ class Terrain {
     }
 
     draw() {
-        ctx.fillStyle = '#654';
         this.segments.forEach(s => {
+            ctx.fillStyle = s.color;
             // Ceiling
             ctx.fillRect(s.x, 0, s.width + 1, s.ceilY);
             // Floor
             ctx.fillRect(s.x, s.floorY, s.width + 1, s.h);
+
+            // Detail for Tech (Greebles)
+            if (s.biome === 'tech') {
+                ctx.fillStyle = '#345';
+                ctx.fillRect(s.x + 5, 5, s.width - 10, s.ceilY - 10); // Simple inset
+                ctx.fillRect(s.x + 5, s.floorY + 5, s.width - 10, s.h - 10);
+            }
         });
     }
 
@@ -706,15 +893,32 @@ function gameLoop() {
     if (currentState === GAME_STATE.PLAYING) {
         // Background
         updateDrawStars();
-        terrain.update();
+
+        // Logic: Stage Progression
+        if (!bossMode) {
+            distance += 2; // Mimic scroll speed
+            terrain.update();
+
+            if (distance >= BOSS_APPEAR_DISTANCE) {
+                bossMode = true;
+                // Spawn Boss
+                enemies.push(new Boss(SCREEN_WIDTH + 50, SCREEN_HEIGHT / 2 - 40));
+                // Optional: Play Boss Music
+            }
+        } else {
+            // Boss Mode: Terrain stops or loops? For now stops.
+        }
+
         terrain.draw();
 
         // Spawners
-        if (frameCount % 600 === 0) {
-            powerups.push(new PowerCapsule(SCREEN_WIDTH, Math.random() * (SCREEN_HEIGHT - 200) + 100));
-        }
-        if (frameCount % 60 === 0) {
-            enemies.push(new Enemy(SCREEN_WIDTH, Math.random() * (SCREEN_HEIGHT - 200) + 100));
+        if (!bossMode) {
+            if (frameCount % 600 === 0) {
+                powerups.push(new PowerCapsule(SCREEN_WIDTH, Math.random() * (SCREEN_HEIGHT - 200) + 100));
+            }
+            if (frameCount % 60 === 0) {
+                enemies.push(new Enemy(SCREEN_WIDTH, Math.random() * (SCREEN_HEIGHT - 200) + 100));
+            }
         }
 
         // Updates
@@ -733,7 +937,11 @@ function gameLoop() {
         enemies.forEach(e => e.draw());
 
         // UI Updates
-        document.getElementById('score').innerText = 'SCORE: ' + score.toString().padStart(6, '0');
+        // UI Updates
+        document.getElementById('score').innerText =
+            'SCORE: ' + score.toString().padStart(6, '0') +
+            ' | STAGE: ' + stage +
+            ' | DIST: ' + Math.floor(distance);
 
         frameCount++;
     } else if (currentState === GAME_STATE.DYING) {
@@ -795,17 +1003,73 @@ function startPlayerDeath() {
     SoundManager.playPlayerExplode();
 }
 
-function checkAllCollisions() {
-    // Terrain
-    if (terrain.checkCollision(player)) {
-        if (player.hasShield && player.shieldHP > 0) {
-            player.shieldHP = 0;
-            player.hasShield = false;
-            SoundManager.playExplosion(); // Shield break sound (reused explosion)
-        } else {
-            startPlayerDeath();
-        }
+function takePlayerDamage() {
+    if (player.invincible || player.invincibleTimer > 0) return;
+
+    if (player.hasShield && player.shieldHP > 0) {
+        player.shieldHP--;
+        if (player.shieldHP <= 0) player.hasShield = false;
+        SoundManager.playPlayerDamage(); // Shield hit sound
+        player.invincibleTimer = 60; // I-frames for shield hit too?
+        return;
     }
+
+    player.hp--;
+    SoundManager.playPlayerDamage();
+    player.invincibleTimer = 90; // 1.5s Invulnerability
+
+    if (player.hp <= 0) {
+        startPlayerDeath();
+    }
+}
+
+// Check All Collisions
+function checkAllCollisions() {
+    // Terrain vs Player
+    if (terrain.checkCollision(player)) {
+        takePlayerDamage();
+    }
+
+    // Bullets vs Enemies & Terrain
+    bullets.forEach(b => {
+        if (!b.active) return;
+
+        // Bullet vs Terrain
+        if (terrain.checkCollision(b)) {
+            b.active = false;
+            return;
+        }
+
+        // Bullet vs Enemies
+        enemies.forEach(e => {
+            if (!e.active || !b.active) return; // check b.active again just in case
+            if (checkCollision(b, e)) {
+
+                if (e instanceof Boss) {
+                    b.active = false;
+                    e.hp--;
+                    SoundManager.playExplosion(); // Small hit sound
+                    if (e.hp <= 0 && !e.dying) {
+                        e.dying = true;
+                        e.deathTimer = 120; // 2 seconds
+                        score += 5000;
+                        SoundManager.playExplosion();
+                        player.invincible = true;
+                    }
+                } else {
+                    // Normal enemy
+                    if (b.type !== 'laser') b.active = false; // Laser cuts through?
+                    e.active = false;
+                    score += 100;
+                    SoundManager.playExplosion();
+
+                    if (Math.random() < 0.15) {
+                        powerups.push(new PowerCapsule(e.x, e.y));
+                    }
+                }
+            }
+        });
+    });
 
     // Player vs Powerups
     powerups.forEach(p => {
@@ -819,41 +1083,13 @@ function checkAllCollisions() {
         }
     });
 
-    // Bullets vs Enemies & Terrain
-    bullets.forEach(b => {
-        if (!b.active) return;
-
-        if (terrain.checkCollision(b)) {
-            b.active = false;
-            return;
-        }
-
-        enemies.forEach(e => {
-            if (!e.active) return;
-            if (checkCollision(b, e)) {
-                e.active = false;
-                SoundManager.playExplosion();
-                if (b.type !== 'laser') b.active = false;
-                score += 200;
-
-                if (Math.random() < 0.2) {
-                    powerups.push(new PowerCapsule(e.x, e.y));
-                }
-            }
-        });
-    });
-
     // Player vs Enemies
     enemies.forEach(e => {
         if (e.active && checkCollision(player, e)) {
-            e.active = false;
-            if (player.hasShield && player.shieldHP > 0) {
-                player.shieldHP--;
-                if (player.shieldHP <= 0) player.hasShield = false;
-                SoundManager.playExplosion();
-            } else {
-                startPlayerDeath();
-            }
+            // Boss collision shouldn't kill boss, but kills player
+            if (!(e instanceof Boss)) e.active = false;
+
+            takePlayerDamage();
         }
     });
 }
@@ -866,6 +1102,27 @@ function triggerGameOver() {
     finalScoreEl.innerText = 'SCORE: ' + score;
     gameOverScreen.classList.remove('hidden');
     SoundManager.playMusic('gameover');
+}
+
+// Stage Complete
+function stageComplete() {
+    currentState = GAME_STATE.STAGE_COMPLETE;
+    stageCompleteScreen.classList.remove('hidden');
+    SoundManager.playMusic('victory');
+}
+
+function startNextStage() {
+    stage++;
+    distance = 0;
+    enemies.length = 0; // Clear old boss/enemies
+    bullets.length = 0; // Clear bullets too for safety
+    player.invincible = false;
+    player.hp = player.maxHp;
+    stageCompleteScreen.classList.add('hidden');
+    currentState = GAME_STATE.PLAYING;
+    SoundManager.playMusic('game');
+    // Increase difficulty?
+    // enemySpawnRate -= 5;
 }
 
 // Start
